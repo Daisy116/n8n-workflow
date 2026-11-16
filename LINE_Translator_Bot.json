@@ -1,0 +1,1000 @@
+{
+  "name": "LINE 多國語言自動翻譯機器人",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "line"
+      },
+      "type": "n8n-nodes-linewebhook.LineWebhook",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        0
+      ],
+      "id": "381fa510-0299-499b-9f82-c491ef40509a",
+      "name": "LineWebhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://translation.googleapis.com/language/translate/v2",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $('LineWebhook').item.json.event.message.text }}"
+            },
+            {
+              "name": "target",
+              "value": "={{ $json.targetLanguage.trim() }}"
+            },
+            {
+              "name": "format",
+              "value": "text"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        832,
+        208
+      ],
+      "id": "16b81c97-4aa6-468b-b211-e3e94cabc542",
+      "name": "Google Translate",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c07d0019-6f84-448a-9acc-8b5c15958c1e",
+              "name": "targetLanguage",
+              "value": "={{ ($json.targetLanguage || 'en').trim() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        608,
+        208
+      ],
+      "id": "f44ef30e-5984-4791-a46d-8fc083be8b4c",
+      "name": "Determine Target Language"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "791ef60b-01b7-48c9-91f8-62aa16afce9a",
+                    "leftValue": "={{ ($json.event.message.text ?? '').trim() }}",
+                    "rightValue": "^@menu$",
+                    "operator": {
+                      "type": "string",
+                      "operation": "regex"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Menu"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "7a97619e-a42e-490d-97ca-104b3e1194ff",
+                    "leftValue": "={{ ($json.event.message.text ?? '').trim() }}",
+                    "rightValue": "^@lang$",
+                    "operator": {
+                      "type": "string",
+                      "operation": "regex"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Quick Reply"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ ($json.event.message.text ?? '').trim() }}",
+                    "rightValue": "^@lang(?:\\s|$)",
+                    "operator": {
+                      "type": "string",
+                      "operation": "regex"
+                    },
+                    "id": "3a531c15-f881-481c-94fa-75832898a061"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Language Command"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "f27c0e9a-5311-47f4-bf52-2c43c3db434b",
+                    "leftValue": "={{ ($json.event.message.text ?? '').trim() }}",
+                    "rightValue": "^@help$",
+                    "operator": {
+                      "type": "string",
+                      "operation": "regex"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Help"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "allMatchingOutputs": false
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        176,
+        -64
+      ],
+      "id": "01e2ebd6-d897-4ba9-b4bb-a40be4a4ed14",
+      "name": "Check Language Command"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst message = $json.event.message.text;\nconst userId = $json.event.source?.userId;\n\n// 取出 @lang 後面的語言代碼\nconst targetLanguage = message\n  .trim()\n  .split(/\\s+/)[1]\n  ?.toLowerCase();\n\n// 支援的語言\nconst supportedLanguages = {\n  \"ja\": \"日文\",\n  \"en\": \"英文\",\n  \"ko\": \"韓文\",\n  \"zh-tw\": \"繁體中文\",\n  \"zh-cn\": \"簡體中文\",\n  \"fr\": \"法文\",\n  \"de\": \"德文\",\n  \"es\": \"西班牙文\"\n};\n\n// 檢查語言代碼是否有效\nconst isValid = Object.hasOwn(\n  supportedLanguages,\n  targetLanguage ?? \"\"\n);\n\nreturn {\n  json: {\n    userId,\n    targetLanguage: isValid\n      ? targetLanguage === \"zh-tw\"\n        ? \"zh-TW\"\n        : targetLanguage === \"zh-cn\"\n          ? \"zh-CN\"\n          : targetLanguage\n      : null,\n    languageName: isValid\n      ? supportedLanguages[targetLanguage]\n      : null,\n    isValid,\n    replyToken: $json.event.replyToken\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        -112
+      ],
+      "id": "2b32b6fc-f37d-4777-a9b4-511a383904d2",
+      "name": "Parse Language Command"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "730b5ed6-bdda-4dc3-a0fa-9cb53de56abf",
+              "leftValue": "={{ $json.isValid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        592,
+        -112
+      ],
+      "id": "5e2fee37-74d3-4694-8006-2f1505df16dd",
+      "name": "Validate Language"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_N8N_DATA_TABLE_ID",
+          "mode": "id"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "userId",
+              "keyValue": "={{ $json.userId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "userId": "={{ $json.userId }}",
+            "targetLanguage": "={{ $json.targetLanguage }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "userId",
+              "displayName": "userId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "targetLanguage",
+              "displayName": "targetLanguage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        848,
+        -224
+      ],
+      "id": "9d9af7e7-d691-4823-9f69-c4d064f76f20",
+      "name": "Upsert row(s)"
+    },
+    {
+      "parameters": {
+        "text": "={{ '翻譯語言成功設定為：' + $('Parse Language Command').item.json.languageName }}"
+      },
+      "type": "n8n-nodes-linewebhook.LineMessageNode",
+      "typeVersion": 1,
+      "position": [
+        1024,
+        -224
+      ],
+      "id": "654257e4-7ed3-4741-8d12-047c8f043656",
+      "name": "Language Setting Success"
+    },
+    {
+      "parameters": {
+        "message": "={{ $json.message }}",
+        "replyToken": "={{ $('Parse Language Command').item.json.replyToken }}"
+      },
+      "type": "n8n-nodes-linewebhook.LineMessaging",
+      "typeVersion": 1,
+      "position": [
+        1216,
+        -128
+      ],
+      "id": "3fa239e9-6548-4f2a-9651-19a3e5b1fba9",
+      "name": "Reply Language Setting"
+    },
+    {
+      "parameters": {
+        "text": "❌ 語言設定失敗！\n請使用以下格式： @lang 語言代碼\n正確格式例如：@lang ja  \n\n支援語言： \nja 日文 \nen 英文 \nko 韓文 \nzh-TW 繁體中文 \nzh-CN 簡體中文 \nfr 法文 \nde 德文 \nes 西班牙文  "
+      },
+      "type": "n8n-nodes-linewebhook.LineMessageNode",
+      "typeVersion": 1,
+      "position": [
+        848,
+        -64
+      ],
+      "id": "d0bbf7ce-7319-48b1-a8f8-9e28d217a1a2",
+      "name": "Invalid Language Message"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_N8N_DATA_TABLE_ID",
+          "mode": "id"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "userId",
+              "keyValue": "={{ $('LineWebhook').item.json.event.source.userId }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        224
+      ],
+      "id": "4744a2c2-f472-43ee-ac5d-eeae8bdfd450",
+      "name": "Get Language Preference",
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    replyToken: $('LineWebhook').first().json.event.replyToken,\n    messages: [\n      {\n        type: \"text\",\n        text: \"請選擇要翻譯成哪種語言：\",\n        quickReply: {\n          items: [\n            { label: \"日文\", code: \"ja\" },\n            { label: \"英文\", code: \"en\" },\n            { label: \"韓文\", code: \"ko\" },\n            { label: \"繁體中文\", code: \"zh-TW\" },\n            { label: \"簡體中文\", code: \"zh-CN\" },\n            { label: \"法文\", code: \"fr\" },\n            { label: \"德文\", code: \"de\" },\n            { label: \"西班牙文\", code: \"es\" }\n          ].map(lang => ({\n            type: \"action\",\n            action: {\n              type: \"message\",\n              label: lang.label,\n              text: `@lang ${lang.code}`\n            }\n          }))\n        }\n      }\n    ]\n  })\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        400,
+        -288
+      ],
+      "id": "d97c590c-c0c3-4493-bc50-508936d9555e",
+      "name": "Send Quick Reply"
+    },
+    {
+      "parameters": {
+        "text": "📖 LINE 翻譯助手｜使用說明\n\n🌐 自動翻譯\n直接傳送文字，機器人就會翻譯成你設定的目標語言。\n\n⚙️ 設定翻譯語言\n輸入 @menu，點選「設定翻譯語言」，再選擇想翻譯成的語言。\n\n💾 自動記住設定\n你的語言偏好會自動儲存，下次使用時不需要重新設定。\n\n🌍 預設語言\n如果尚未設定，系統預設翻譯成英文。\n\n💡 小提醒\n目前僅支援文字翻譯，不支援圖片、語音或貼圖翻譯。"
+      },
+      "type": "n8n-nodes-linewebhook.LineMessageNode",
+      "typeVersion": 1,
+      "position": [
+        400,
+        48
+      ],
+      "id": "71ff83e3-d983-4b68-8aae-8517203ab7bf",
+      "name": "Help Message"
+    },
+    {
+      "parameters": {
+        "message": "={{ $json.message }}",
+        "replyToken": "={{ $('LineWebhook').item.json.event.replyToken }}"
+      },
+      "type": "n8n-nodes-linewebhook.LineMessaging",
+      "typeVersion": 1,
+      "position": [
+        624,
+        48
+      ],
+      "id": "b868379d-f322-4a9b-af58-86e787cd027d",
+      "name": "Reply Help Message"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_N8N_DATA_TABLE_ID",
+          "mode": "id"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "userId",
+              "keyValue": "={{ $('LineWebhook').item.json.event.source.userId }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        -544
+      ],
+      "id": "64c9a8a8-aad7-4e2e-93b0-4b98eb53e13d",
+      "name": "Get Data",
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    replyToken: $('LineWebhook').first().json.event.replyToken,\n    messages: [\n      {\n        type: \"text\",\n        text: $json.data.translations[0].translatedText,\n        quoteToken: $('LineWebhook').first().json.event.message.quoteToken\n      }\n    ]\n  })\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1056,
+        112
+      ],
+      "id": "0a3bf95e-9b22-45c4-9706-e26e02d8fd71",
+      "name": "Send Quoted Translation",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    replyToken: $json.event.replyToken,\n    messages: [\n      {\n        type: \"text\",\n        text:\n          \"目前僅支援文字翻譯。\\n\\n\" +\n          \"請直接傳送需要翻譯的文字，\" +\n          \"或輸入 @menu 開啟功能選單。\"\n      }\n    ]\n  })\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        192,
+        272
+      ],
+      "id": "bc32eec7-a331-4bc3-ba39-3d5d0753d212",
+      "name": "Reply Unsupported Message"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    replyToken: $('LineWebhook').first().json.event.replyToken,\n    messages: [\n      {\n        type: \"text\",\n        text:\n          \"翻譯服務暫時無法完成請求，請稍後重新傳送文字。\" +\n          \"\\n\\n\" +\n          \"若持續發生問題，請聯繫客服。\"\n      }\n    ]\n  })\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1056,
+        288
+      ],
+      "id": "c6fb15e0-0566-4c95-8a47-ca762addb9df",
+      "name": "Reply Translation Error"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    replyToken: $('LineWebhook').first().json.event.replyToken,\n    messages: [\n      {\n        type: \"text\",\n        text: \"目前無法讀取你的翻譯設定，請稍後再試。\\n\\n你的原有設定不會因此被更改。\"\n      }\n    ]\n  })\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        624,
+        -352
+      ],
+      "id": "0f921ba2-8bf0-4ac6-a9c6-83de8d281910",
+      "name": "Reply Database Error"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    replyToken: $('LineWebhook').first().json.event.replyToken,\n    messages: [\n      {\n        type: \"flex\",\n        altText: \"LINE 翻譯助手功能選單\",\n        contents: {\n          type: \"bubble\",\n          size: \"mega\",\n          header: {\n            type: \"box\",\n            layout: \"vertical\",\n            backgroundColor: \"#166B52\",\n            paddingAll: \"20px\",\n            spacing: \"md\",\n            contents: [\n              {\n                type: \"text\",\n                text: \"TRANSLATION ASSISTANT\",\n                size: \"xs\",\n                color: \"#DDF4E8\",\n                weight: \"bold\"\n              },\n              {\n                type: \"text\",\n                text: \"LINE 翻譯助手\",\n                size: \"xl\",\n                weight: \"bold\",\n                color: \"#FFFFFF\"\n              },\n              {\n                type: \"text\",\n                text: \"讓跨語言溝通更簡單\",\n                size: \"sm\",\n                color: \"#E3F4E9\"\n              }\n            ]\n          },\n          body: {\n            type: \"box\",\n            layout: \"vertical\",\n            backgroundColor: \"#FFFFFF\",\n            paddingAll: \"18px\",\n            spacing: \"lg\",\n            contents: [\n              {\n                type: \"box\",\n                layout: \"vertical\",\n                backgroundColor: \"#F1F7F3\",\n                cornerRadius: \"12px\",\n                paddingAll: \"14px\",\n                spacing: \"sm\",\n                contents: [\n                  {\n                    type: \"text\",\n                    text: \"目前翻譯語言\",\n                    size: \"xs\",\n                    color: \"#678275\"\n                  },\n                  {\n                    type: \"text\",\n                    text: (() => {\n                      const languages = {\n                        ja: \"日文 Japanese\",\n                        en: \"英文 English\",\n                        ko: \"韓文 Korean\",\n                        \"zh-TW\": \"繁體中文\",\n                        \"zh-CN\": \"簡體中文\",\n                        fr: \"法文 French\",\n                        de: \"德文 German\",\n                        es: \"西班牙文 Spanish\"\n                      };\n\n                      const code = $json.targetLanguage;\n\n                      return code\n                        ? languages[code] ?? code\n                        : \"尚未設定（預設英文）\";\n                    })(),\n                    size: \"lg\",\n                    weight: \"bold\",\n                    color: \"#1A4B38\",\n                    wrap: true\n                  }\n                ]\n              },\n              {\n                type: \"text\",\n                text: \"直接傳送文字，即可自動翻譯成指定語言。\",\n                size: \"sm\",\n                color: \"#75857C\",\n                wrap: true\n              }\n            ]\n          },\n          footer: {\n            type: \"box\",\n            layout: \"vertical\",\n            backgroundColor: \"#FFFFFF\",\n            paddingAll: \"16px\",\n            spacing: \"sm\",\n            contents: [\n              {\n                type: \"button\",\n                style: \"primary\",\n                color: \"#16805C\",\n                height: \"md\",\n                action: {\n                  type: \"message\",\n                  label: \"設定翻譯語言\",\n                  text: \"@lang\"\n                }\n              },\n              {\n                type: \"button\",\n                style: \"secondary\",\n                color: \"#EAF3EE\",\n                height: \"md\",\n                action: {\n                  type: \"message\",\n                  label: \"使用說明\",\n                  text: \"@help\"\n                }\n              },\n              {\n                type: \"text\",\n                text: \"POWERED BY GOOGLE CLOUD TRANSLATION\",\n                color: \"#81948A\",\n                size: \"xxs\",\n                align: \"center\",\n                margin: \"md\",\n                wrap: true\n              }\n            ]\n          }\n        }\n      }\n    ]\n  })\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        608,
+        -768
+      ],
+      "id": "890b7e7a-6119-4e45-af39-eb21f67835d7",
+      "name": "Send Flex Menu"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "28edf731-e904-43dc-8345-8122bce944c0",
+              "leftValue": "={{ $json.error !== undefined && $json.error !== null }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1280,
+        96
+      ],
+      "id": "6881dea1-0de6-481a-900f-bf58eeea665c",
+      "name": "Check LINE Reply Result"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const event = $('LineWebhook').first().json.event;\n\n// 取得 HTTP Request 的錯誤資訊\nconst error = $json.error ?? {};\n\nconst rawMessage = String(\n  typeof error === \"string\"\n    ? error\n    : error.message ?? \"Unknown LINE API error\"\n);\n\n// 分類錯誤\nlet errorType = \"unknown\";\n\nif (/timeout|timed out|ETIMEDOUT/i.test(rawMessage)) {\n  errorType = \"timeout\";\n}\nelse if (/401|403|unauthorized|forbidden/i.test(rawMessage)) {\n  errorType = \"authentication\";\n}\nelse if (/400|404|bad request|not found/i.test(rawMessage)) {\n  errorType = \"request_error\";\n}\nelse if (/429|rate limit/i.test(rawMessage)) {\n  errorType = \"rate_limit\";\n}\nelse if (/500|502|503|server error/i.test(rawMessage)) {\n  errorType = \"server_error\";\n}\n\n// 使用固定摘要，避免將 API Token 等敏感內容寫入日誌\nconst descriptions = {\n  timeout: \"LINE API request timed out\",\n  authentication: \"LINE API authentication failed\",\n  request_error: \"LINE API rejected the request\",\n  rate_limit: \"LINE API rate limit exceeded\",\n  server_error: \"LINE API server error\",\n  unknown: \"LINE API request failed\"\n};\n\nreturn {\n  json: {\n    eventId: event.webhookEventId ?? \"\",\n    messageId: event.message?.id ?? \"\",\n    failedNode: \"Send Quoted Translation\",\n    errorType,\n    errorMessage: descriptions[errorType],\n    occurredAt: new Date().toISOString()\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        0
+      ],
+      "id": "b05697fc-12d7-4b82-93a8-4a6d7b103617",
+      "name": "Prepare LINE Error Log"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_N8N_DATA_TABLE_ID",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "eventId": "={{ $json.eventId }}",
+            "messageId": "={{ $json.messageId }}",
+            "failedNode": "={{ $json.failedNode }}",
+            "errorType": "={{ $json.errorType }}",
+            "errorMessage": "={{ $json.errorMessage }}",
+            "occurredAt": "={{ $json.occurredAt }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "messageId",
+              "displayName": "messageId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "failedNode",
+              "displayName": "failedNode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "errorType",
+              "displayName": "errorType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "errorMessage",
+              "displayName": "errorMessage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "occurredAt",
+              "displayName": "occurredAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1728,
+        0
+      ],
+      "id": "634b7f37-c74c-48a7-83e9-eca2913f1f19",
+      "name": "Save LINE Error Log"
+    },
+    {
+      "parameters": {
+        "content": "## 翻譯 API 錯誤處理\n\n**節點：** Reply Translation Error\n\n- **觸發：** Google Translate API 請求失敗或逾時\n- **處理：** 向 LINE 使用者回覆服務暫時異常\n- **目的：** 避免翻譯失敗後沒有任何回應",
+        "height": 144,
+        "width": 342,
+        "color": "#F8AB77"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1248,
+        272
+      ],
+      "id": "2f1d5a84-26c2-4957-b23a-6d72f6457c41",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "\n## Data Table 查詢異常\n\n**節點：** Reply Database Error\n\n- **觸發：** 個人語言設定查詢發生錯誤\n- **處理：** 向使用者回覆資料讀取失敗\n- **例外：** 查無設定不算錯誤，使用預設英文",
+        "height": 336,
+        "width": 256,
+        "color": "#555EE2"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        560,
+        -544
+      ],
+      "id": "e25e2f49-b097-4b36-a936-81c4cfb85330",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## LINE API 發送失敗紀錄\n\n**節點：** Save LINE Error Log\n\n- **觸發：** Send Quoted Translation 發送失敗\n- **處理：** 分類錯誤並寫入 Data Table\n- **目的：** 支援後續排查與維運\n- **注意：** 不自動重送，避免重複訊息",
+        "height": 368,
+        "width": 224,
+        "color": "#82D080"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1632,
+        -240
+      ],
+      "id": "ab207048-8423-422b-b2a4-b48b57e53408",
+      "name": "Sticky Note2"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "LineWebhook": {
+      "main": [
+        [
+          {
+            "node": "Check Language Command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply Unsupported Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply Unsupported Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply Unsupported Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply Unsupported Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Translate": {
+      "main": [
+        [
+          {
+            "node": "Send Quoted Translation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply Translation Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Target Language": {
+      "main": [
+        [
+          {
+            "node": "Google Translate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Language Command": {
+      "main": [
+        [
+          {
+            "node": "Get Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Quick Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Language Command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Help Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Language Preference",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Language Command": {
+      "main": [
+        [
+          {
+            "node": "Validate Language",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Language": {
+      "main": [
+        [
+          {
+            "node": "Upsert row(s)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Invalid Language Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert row(s)": {
+      "main": [
+        [
+          {
+            "node": "Language Setting Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Language Setting Success": {
+      "main": [
+        [
+          {
+            "node": "Reply Language Setting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invalid Language Message": {
+      "main": [
+        [
+          {
+            "node": "Reply Language Setting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Language Preference": {
+      "main": [
+        [
+          {
+            "node": "Determine Target Language",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply Database Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Help Message": {
+      "main": [
+        [
+          {
+            "node": "Reply Help Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Data": {
+      "main": [
+        [
+          {
+            "node": "Send Flex Menu",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply Database Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Quoted Translation": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Check LINE Reply Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check LINE Reply Result": {
+      "main": [
+        [
+          {
+            "node": "Prepare LINE Error Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare LINE Error Log": {
+      "main": [
+        [
+          {
+            "node": "Save LINE Error Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
