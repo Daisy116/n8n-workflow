@@ -22,7 +22,7 @@
 - [LINE 自動翻譯 Workflow](./LINE_Translator_Bot.json)
 - [詳細專案說明（Notion）](https://app.notion.com/p/41864eab26908038935ac1b0c03b5108)
 
-![LINE 多國語言自動翻譯機器人](./assets/translate1.gif)
+<img src="./assets/translate1.gif" alt="LINE 多國語言自動翻譯機器人" width="320">
 
 ## Usage
 本 Repository 提供已移除個人環境識別資訊的 n8n Workflow JSON。<br>
