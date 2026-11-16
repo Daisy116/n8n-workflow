@@ -1,0 +1,691 @@
+{
+  "name": "OpenWeather 天氣資料自動更新系統",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 12,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -384,
+        112
+      ],
+      "id": "b8865fd0-f591-49ad-ba5a-8657c1bf44c3",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const locations = [\n  {\n    name: \"彰化縣和美鎮\",\n    latitude: 24.11,\n    longitude: 120.50\n  },\n  {\n    name: \"臺中市大甲區\",\n    latitude: 24.3489,\n    longitude: 120.6224\n  }\n];\n\nreturn locations.map(location => ({\n  json: location\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        112
+      ],
+      "id": "96f16ce8-0a2d-4716-a277-64b68b950010",
+      "name": "Code：建立地區清單"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -32,
+        112
+      ],
+      "id": "38e719cc-4dc5-4e32-a5c7-4a542e7d1a93",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "operation": "5DayForecast",
+        "locationSelection": "coordinates",
+        "latitude": "={{ $json.latitude }}",
+        "longitude": "={{ $json.longitude }}",
+        "language": "zh_tw"
+      },
+      "type": "n8n-nodes-base.openWeatherMap",
+      "typeVersion": 1,
+      "position": [
+        192,
+        128
+      ],
+      "id": "e2cdc03a-2f74-44e1-bfd5-df748d682292",
+      "name": "OpenWeatherMap - 取得各地區天氣預報",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const inputItems = $input.all();\n\n// 取得 OpenWeather API 回傳的資料\nconst data = inputItems[0]?.json;\n\n// 1. 檢查基本資料結構\nif (!data || !data.city || !Array.isArray(data.list)) {\n  throw new Error(\"OpenWeather 回傳格式錯誤：缺少 city 或 list\");\n}\n\n// 2. 檢查時區資料\nif (!Number.isFinite(data.city.timezone)) {\n  throw new Error(\"OpenWeather 回傳格式錯誤：timezone 無效\");\n}\n\n// 3. 檢查是否有預報資料\nif (data.list.length === 0) {\n  throw new Error(\"OpenWeather 沒有回傳任何天氣預報\");\n}\n\n// 4. 逐筆檢查天氣預報\nfor (let i = 0; i < data.list.length; i++) {\n  const item = data.list[i];\n\n  if (!Number.isFinite(item?.dt)) {\n    throw new Error(`第 ${i + 1} 筆：預報時間無效`);\n  }\n\n  if (!Number.isFinite(item?.main?.temp)) {\n    throw new Error(`第 ${i + 1} 筆：氣溫資料無效`);\n  }\n\n  if (\n    !Number.isFinite(item?.pop) ||\n    item.pop < 0 ||\n    item.pop > 1\n  ) {\n    throw new Error(`第 ${i + 1} 筆：降雨機率無效`);\n  }\n\n  if (\n    typeof item?.weather?.[0]?.description !== \"string\" ||\n    !item.weather[0].description.trim()\n  ) {\n    throw new Error(`第 ${i + 1} 筆：天氣描述缺失`);\n  }\n}\n\n// 5. 全部通過，將原始資料交給下一個節點\nreturn inputItems;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        112
+      ],
+      "id": "cd19dd54-cc40-4ae3-bea0-90d8a3fd67b0",
+      "name": "驗證 OpenWeather 資料",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\n// 目前這個 Code Node 是第幾次執行\n// 第一輪為 0，第二輪為 1\nconst locationIndex = $runIndex;\n\n// 取得建立地區清單 Node 的所有資料\nconst locationItems =\n  $(\"Code：建立地區清單\").all();\n\n// 根據目前執行輪次取得地區名稱\nconst locationName =\n  locationItems[locationIndex]?.json.name;\n\n// 找不到名稱時，顯示詳細錯誤\nif (!locationName) {\n  throw new Error(\n    `找不到地區名稱：目前第 ${locationIndex} 輪，` +\n    `地區清單共有 ${locationItems.length} 筆`\n  );\n}\n\n\n// 記錄這次取得並整理天氣資料的時間（台灣時間）\nconst updatedAt = $now\n  .setZone(\"Asia/Taipei\")\n  .toFormat(\"yyyy-MM-dd HH:mm:ss\");\n\n// 1. 取得 API 的時區偏移量（台灣為 +28800 秒）\nconst timezone = data.city.timezone;\n\n// 2. 將 UTC 時間轉成當地日期與小時\nconst forecasts = data.list.map(item => {\n  const localDate = new Date(\n    (item.dt + timezone) * 1000\n  );\n\n  return {\n    date: localDate.toISOString().slice(0, 10),\n    time: localDate.toISOString().slice(11, 16),\n    hour: localDate.getUTCHours(),\n    temp: item.main.temp,\n    pop: item.pop * 100,\n    weather: item.weather[0].description\n  };\n});\n\n// 3. 依日期分組\nconst grouped = {};\n\nfor (const item of forecasts) {\n  if (!grouped[item.date]) {\n    grouped[item.date] = [];\n  }\n\n  grouped[item.date].push(item);\n}\n\n// 4. 常用統計函式\nconst average = values =>\n  Math.round(\n    values.reduce((sum, n) => sum + n, 0)\n    / values.length * 10\n  ) / 10;\n\nconst mainWeather = items => {\n  const counts = {};\n\n  for (const item of items) {\n    counts[item.weather] =\n      (counts[item.weather] ?? 0) + 1;\n  }\n\n  return Object.keys(counts).sort(\n    (a, b) => counts[b] - counts[a]\n  )[0];\n};\n\n// 5. 計算早上、下午、晚上的資料\nfunction periodSummary(items, start, end) {\n  const selected = items.filter(\n    item => item.hour >= start && item.hour < end\n  );\n\n  if (selected.length === 0) {\n    return null;\n  }\n\n  return {\n    平均氣溫: average(selected.map(x => x.temp)),\n    平均降雨機率: average(selected.map(x => x.pop)),\n    天氣描述: mainWeather(selected),\n    預報時間: selected.map(x => x.time)\n  };\n}\n\n// 6. 每個日期產生一個 n8n Item\nreturn Object.keys(grouped)\n  .sort()\n  .slice(0, 5)\n  .map(date => {\n    const items = grouped[date];\n\n    return {\n      json: {\n        唯一識別碼: `${date}_${locationName}`,\n        日期: date,\n        updatedAt: updatedAt,\n        早上: periodSummary(items, 6, 12),\n        下午: periodSummary(items, 12, 18),\n        晚上: periodSummary(items, 18, 24),\n        當日摘要: {\n          最低氣溫: Math.round(\n            Math.min(...items.map(x => x.temp)) * 10\n          ) / 10,\n          最高氣溫: Math.round(\n            Math.max(...items.map(x => x.temp)) * 10\n          ) / 10,\n          平均降雨機率: average(items.map(x => x.pop)),\n          最高時段降雨機率: Math.max(...items.map(x => x.pop)),\n          主要天氣: mainWeather(items),\n          預報筆數: items.length,\n          全天資料完整: items.length === 8\n        }\n      }\n    };\n  });\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        96
+      ],
+      "id": "b4836aeb-8918-418f-a783-929829b2a54b",
+      "name": "Code：整理各地區天氣預報",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_SHEET_TAB_ID",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "早上氣溫": "={{ $json['早上']?.['平均氣溫'] ?? '' }}",
+            "日期": "={{ $json['日期'] }}",
+            "下午氣溫": "={{ $json['下午']?.['平均氣溫'] ?? '' }}",
+            "晚上氣溫": "={{ $json['晚上']?.['平均氣溫'] ?? '' }}",
+            "下午降雨機率": "={{ $json['下午']?.['平均降雨機率'] ?? ''  }}",
+            "早上降雨機率": "={{ $json['早上']?.['平均降雨機率'] ?? ''  }}",
+            "晚上降雨機率": "={{ $json['晚上']?.['平均降雨機率'] ?? ''  }}",
+            "最低溫": "={{ $json['當日摘要']['最低氣溫'] }}",
+            "最高溫": "={{ $json['當日摘要']['最高氣溫'] }}",
+            "平均降雨機率": "={{ $json['當日摘要']['平均降雨機率'] }}",
+            "主要天氣": "={{ $json['當日摘要']['主要天氣'] }}",
+            "唯一識別碼": "={{ $json['唯一識別碼'] }}",
+            "updatedAt": "= {{ $json.updatedAt }}"
+          },
+          "matchingColumns": [
+            "唯一識別碼"
+          ],
+          "schema": [
+            {
+              "id": "唯一識別碼",
+              "displayName": "唯一識別碼",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "日期",
+              "displayName": "日期",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "早上氣溫",
+              "displayName": "早上氣溫",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "早上降雨機率",
+              "displayName": "早上降雨機率",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "下午氣溫",
+              "displayName": "下午氣溫",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "下午降雨機率",
+              "displayName": "下午降雨機率",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "晚上氣溫",
+              "displayName": "晚上氣溫",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "晚上降雨機率",
+              "displayName": "晚上降雨機率",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "最低溫",
+              "displayName": "最低溫",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "最高溫",
+              "displayName": "最高溫",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "平均降雨機率",
+              "displayName": "平均降雨機率",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "主要天氣",
+              "displayName": "主要天氣",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updatedAt",
+              "displayName": "updatedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        832,
+        80
+      ],
+      "id": "fbb1860c-5ebb-4e62-a2e6-43e39c4622f4",
+      "name": "Google Sheets－更新各地區天氣預報",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "38f8eac1-3a1e-4657-bf0a-83918a41622a",
+              "name": "執行時間",
+              "value": "={{ $now.setZone(\"Asia/Taipei\").toFormat(\"yyyy-MM-dd HH:mm:ss\") }}",
+              "type": "string"
+            },
+            {
+              "id": "24e1902e-f4e3-4b5f-bfe4-a9edd5242850",
+              "name": "地區",
+              "value": "={{ $(\"Loop Over Items\").first(1, $(\"Loop Over Items\").context.currentRunIndex).json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "fb149ce4-ab6b-480a-ad1c-efb8ee7389f0",
+              "name": "失敗節點",
+              "value": "OpenWeather API",
+              "type": "string"
+            },
+            {
+              "id": "82a24d3c-cdf9-485a-9ff3-8ebc260de443",
+              "name": "錯誤原因",
+              "value": "={{ typeof $json.error === \"string\"\n  ? $json.error\n  : ($json.error?.message ?? $json.message ?? \"未知錯誤\")\n}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        400,
+        304
+      ],
+      "id": "52fe29c5-6391-41b9-a73c-0817b12bb8f0",
+      "name": "記錄 API 錯誤資訊"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "38f8eac1-3a1e-4657-bf0a-83918a41622a",
+              "name": "執行時間",
+              "value": "={{ $now.setZone(\"Asia/Taipei\").toFormat(\"yyyy-MM-dd HH:mm:ss\") }}",
+              "type": "string"
+            },
+            {
+              "id": "24e1902e-f4e3-4b5f-bfe4-a9edd5242850",
+              "name": "地區",
+              "value": "={{ $(\"Loop Over Items\").first(1, $(\"Loop Over Items\").context.currentRunIndex).json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "fb149ce4-ab6b-480a-ad1c-efb8ee7389f0",
+              "name": "失敗節點",
+              "value": "資料驗證",
+              "type": "string"
+            },
+            {
+              "id": "82a24d3c-cdf9-485a-9ff3-8ebc260de443",
+              "name": "錯誤原因",
+              "value": "={{ typeof $json.error === \"string\"\n  ? $json.error\n  : ($json.error?.message ?? $json.message ?? \"未知錯誤\")\n}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        608,
+        256
+      ],
+      "id": "4f64af55-1273-48bf-91fa-2701a9fafd75",
+      "name": "記錄驗證錯誤資訊"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "38f8eac1-3a1e-4657-bf0a-83918a41622a",
+              "name": "執行時間",
+              "value": "={{ $now.setZone(\"Asia/Taipei\").toFormat(\"yyyy-MM-dd HH:mm:ss\") }}",
+              "type": "string"
+            },
+            {
+              "id": "24e1902e-f4e3-4b5f-bfe4-a9edd5242850",
+              "name": "地區",
+              "value": "={{ $(\"Loop Over Items\").last().json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "fb149ce4-ab6b-480a-ad1c-efb8ee7389f0",
+              "name": "失敗節點",
+              "value": "天氣資料整理",
+              "type": "string"
+            },
+            {
+              "id": "82a24d3c-cdf9-485a-9ff3-8ebc260de443",
+              "name": "錯誤原因",
+              "value": "={{ typeof $json.error === \"string\"\n  ? $json.error\n  : ($json.error?.message ?? $json.message ?? \"未知錯誤\")\n}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        832,
+        256
+      ],
+      "id": "1555bafd-7aa9-4d87-9906-07d1b8df7dc3",
+      "name": "記錄整理錯誤資訊"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "38f8eac1-3a1e-4657-bf0a-83918a41622a",
+              "name": "執行時間",
+              "value": "={{ $now.setZone(\"Asia/Taipei\").toFormat(\"yyyy-MM-dd HH:mm:ss\") }}",
+              "type": "string"
+            },
+            {
+              "id": "24e1902e-f4e3-4b5f-bfe4-a9edd5242850",
+              "name": "地區",
+              "value": "={{ $(\"Loop Over Items\").last().json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "fb149ce4-ab6b-480a-ad1c-efb8ee7389f0",
+              "name": "失敗節點",
+              "value": "Google Sheets Upsert",
+              "type": "string"
+            },
+            {
+              "id": "82a24d3c-cdf9-485a-9ff3-8ebc260de443",
+              "name": "錯誤原因",
+              "value": "={{ typeof $json.error === \"string\"\n  ? $json.error\n  : ($json.error?.message ?? $json.message ?? \"未知錯誤\")\n}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1040,
+        96
+      ],
+      "id": "3296fa9e-fabb-42ce-9b07-e4faa822c628",
+      "name": "記錄寫入錯誤資訊"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_SHEET_TAB_ID",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "執行時間": "={{ $json[\"執行時間\"] }}",
+            "地區": "={{ $json[\"地區\"] }}",
+            "失敗節點": "={{ $json[\"失敗節點\"] }}",
+            "錯誤原因": "={{ $json[\"錯誤原因\"] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "執行時間",
+              "displayName": "執行時間",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "地區",
+              "displayName": "地區",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "失敗節點",
+              "displayName": "失敗節點",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "錯誤原因",
+              "displayName": "錯誤原因",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1216,
+        288
+      ],
+      "id": "dd55a752-9968-4844-aa1b-a51df32a881f",
+      "name": "Google Sheets－寫入錯誤紀錄",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code：建立地區清單",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code：建立地區清單": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "OpenWeatherMap - 取得各地區天氣預報",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenWeatherMap - 取得各地區天氣預報": {
+      "main": [
+        [
+          {
+            "node": "驗證 OpenWeather 資料",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "記錄 API 錯誤資訊",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "驗證 OpenWeather 資料": {
+      "main": [
+        [
+          {
+            "node": "Code：整理各地區天氣預報",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "記錄驗證錯誤資訊",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code：整理各地區天氣預報": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets－更新各地區天氣預報",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "記錄整理錯誤資訊",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets－更新各地區天氣預報": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "記錄寫入錯誤資訊",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "記錄 API 錯誤資訊": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets－寫入錯誤紀錄",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "記錄驗證錯誤資訊": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets－寫入錯誤紀錄",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "記錄整理錯誤資訊": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets－寫入錯誤紀錄",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "記錄寫入錯誤資訊": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets－寫入錯誤紀錄",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets－寫入錯誤紀錄": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
