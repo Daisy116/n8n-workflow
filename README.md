@@ -14,7 +14,7 @@
 - [LINE 天氣查詢 Workflow](./LINE_Weather_Query.json)
 - [詳細專案說明（Notion）](https://app.notion.com/p/41564eab269080beb7dbf1b737df0b73)
 
-![LINE 天氣查詢操作展示](./assets/LINE_weather_dajia.gif)
+<img src="./assets/LINE_weather_dajia.gif" alt="LINE 天氣查詢操作展示" width="320">
 
 ### 2. LINE 多國語言自動翻譯機器人
 整合 LINE Messaging API 與 Google Cloud Translation API，支援八種目標語言翻譯、個人語言偏好保存與異常處理。<br>
