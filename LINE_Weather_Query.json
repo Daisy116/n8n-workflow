@@ -1,0 +1,551 @@
+{
+  "name": "LINE 天氣查詢",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "line-weather",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -192,
+        16
+      ],
+      "id": "2a5cf353-8a9e-4b92-a2c7-e2e77278f9d1",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3c29b83d-b321-4a34-b05a-96b2fccdb462",
+              "name": "userId",
+              "value": "={{ $json.body.events[0].source.userId }}",
+              "type": "string"
+            },
+            {
+              "id": "92d26556-629b-4946-8854-503c232655f1",
+              "name": "replyToken",
+              "value": "={{ $json.body.events[0].replyToken }}",
+              "type": "string"
+            },
+            {
+              "id": "64bc3855-8c2e-434a-8d68-cfef7270a106",
+              "name": "message",
+              "value": "={{ $json.body.events[0].message?.text ?? '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        672,
+        0
+      ],
+      "id": "6d304bff-8a10-437d-adf4-af5c372e0602",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Edit Fields').first().json.message }}",
+                    "rightValue": "查詢天氣_和美",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "d3db0e7d-9610-4273-b229-43de6a1b149d"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "3f8a116e-f8bb-4e70-b35d-72ca9a34ec20",
+                    "leftValue": "={{ $('Edit Fields').first().json.message }}",
+                    "rightValue": "查詢天氣_大甲",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        992,
+        -16
+      ],
+      "id": "f753e258-6245-44ad-a92c-373e303da1b8",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "message": "={{ $json.message }}",
+        "replyToken": "={{ $('Edit Fields').item.json.replyToken }}"
+      },
+      "type": "n8n-nodes-linewebhook.LineMessaging",
+      "typeVersion": 1,
+      "position": [
+        2016,
+        -64
+      ],
+      "id": "1010eb09-68ab-4a92-800c-25e773a38996",
+      "name": "LineMessaging"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * LINE Flex Message：日曆卡片風\n * 輸入：{ location, forecasts, count }\n * 輸出：{ location, message, cardCount }\n */\n\nconst data = $input.first().json;\n// throw new Error(\"測試：模擬天氣資料驗證失敗\");\nconst location = data.location || \"未知地區\";\nconst forecasts = (data.forecasts ?? []).slice(0, 5);\n\n\n\n // ===== 資料完整性驗證 =====\n\n// 取得今天日期（台灣時間）\nconst today = $now\n  .setZone(\"Asia/Taipei\")\n  .toFormat(\"yyyy-MM-dd\");\n\n// 用來檢查數值是否有效\nfunction isValidNumber(value, min, max) {\n  if (value === null || value === undefined || value === \"\") {\n    return false;\n  }\n\n  const number = Number(value);\n\n  return (\n    Number.isFinite(number) &&\n    number >= min &&\n    number <= max\n  );\n}\n\n// 儲存已檢查過的日期，避免重複\nconst checkedDates = new Set();\n\n// 逐筆檢查天氣資料\nfor (const day of forecasts) {\n\n  const date = String(day[\"日期\"] ?? \"\").trim();\n\n  // 1. 日期必須符合 yyyy-MM-dd\n  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) {\n    throw new Error(`預報日期格式錯誤：${date}`);\n  }\n\n  // 2. 日期不能早於今天\n  if (date < today) {\n    throw new Error(`預報日期已過期：${date}`);\n  }\n\n  // 3. 不可以有重複日期\n  if (checkedDates.has(date)) {\n    throw new Error(`發現重複預報日期：${date}`);\n  }\n\n  checkedDates.add(date);\n\n  // 4. 檢查最低、最高氣溫\n  if (\n    !isValidNumber(day[\"最低溫\"], -50, 60) ||\n    !isValidNumber(day[\"最高溫\"], -50, 60)\n  ) {\n    throw new Error(`${date}：最低溫或最高溫無效`);\n  }\n\n  // 5. 最低溫不能大於最高溫\n  if (Number(day[\"最低溫\"]) > Number(day[\"最高溫\"])) {\n    throw new Error(`${date}：最低溫大於最高溫`);\n  }\n\n  // 6. 檢查三個時段的資料\n  const periods = [\n    [\"早上氣溫\", \"早上降雨機率\"],\n    [\"下午氣溫\", \"下午降雨機率\"],\n    [\"晚上氣溫\", \"晚上降雨機率\"]\n  ];\n\n  let availablePeriods = 0;\n\n  for (const [tempKey, rainKey] of periods) {\n\n    const temperature = day[tempKey];\n    const rain = day[rainKey];\n\n    // 該時段兩個欄位都沒有資料，允許略過\n    if (\n      (temperature === \"\" || temperature == null) &&\n      (rain === \"\" || rain == null)\n    ) {\n      continue;\n    }\n\n    // 只要其中一欄有資料，兩欄都必須有效\n    if (\n      !isValidNumber(temperature, -50, 60) ||\n      !isValidNumber(rain, 0, 100)\n    ) {\n      throw new Error(`${date}：${tempKey} 或 ${rainKey} 無效`);\n    }\n\n    availablePeriods++;\n  }\n\n  // 每天至少要有一個有效時段\n  if (availablePeriods === 0) {\n    throw new Error(`${date}：沒有可用的時段預報`);\n  }\n}\n\n\n\n \n// ===== 地區主題配色 =====\n\nconst themes = {\n  \"彰化縣和美鎮\": {\n    locationBg: \"#FFF3F6\",\n    locationText: \"#884765\",\n    calendarBg: \"#BB6589\",\n    weatherBg: \"#F9E2EC\",\n    weatherText: \"#91627A\",\n    temperatureText: \"#713951\",\n    rainText: \"#BB6589\"\n  },\n\n  \"臺中市大甲區\": {\n    locationBg: \"#F4F7F9\",\n    locationText: \"#2A4F5F\",\n    calendarBg: \"#2A7086\",\n    weatherBg: \"#DCEBE7\",\n    weatherText: \"#5D6D79\",\n    temperatureText: \"#2E4B5A\",\n    rainText: \"#2C7FB8\"\n  }\n};\n\n// 根據地區選擇顏色\nconst theme = themes[location] ?? themes[\"臺中市大甲區\"];\n\n\n// ===== 1. 資料格式處理 =====\n\n// null、undefined、空字串顯示為 —\n// 數字 0 必須保留\nfunction num(value) {\n  if (value === null || value === undefined || value === \"\") {\n    return \"—\";\n  }\n\n  const n = Number(value);\n  return Number.isFinite(n) ? String(n) : \"—\";\n}\n\nfunction temp(value) {\n  const n = num(value);\n  return n === \"—\" ? \"—\" : `${n}°C`;\n}\n\nfunction rain(value) {\n  const n = num(value);\n  return n === \"—\" ? \"—\" : `${n}%`;\n}\n\n// 最低溫～最高溫\nfunction tempRange(low, high) {\n  const a = num(low);\n  const b = num(high);\n\n  if (a === \"—\" || b === \"—\") {\n    return \"—\";\n  }\n\n  return `${a}°C ～ ${b}°C`;\n}\n\n// 將 2026-10-17 轉成 10/17、星期六\nfunction formatDate(dateString) {\n  const date = new Date(`${dateString}T00:00:00Z`);\n\n  if (Number.isNaN(date.getTime())) {\n    return { shortDate: \"—\", weekday: \"—\" };\n  }\n\n  const weekdays = [\n    \"星期日\", \"星期一\", \"星期二\", \"星期三\",\n    \"星期四\", \"星期五\", \"星期六\"\n  ];\n\n  return {\n    shortDate: `${date.getUTCMonth() + 1}/${date.getUTCDate()}`,\n    weekday: weekdays[date.getUTCDay()]\n  };\n}\n\n// ===== 2. LINE Flex 共用文字元件 =====\n\nfunction flexText(value, size, color, bold = false, extra = {}) {\n  return {\n    type: \"text\",\n    text: String(value),\n    size,\n    color,\n    ...(bold ? { weight: \"bold\" } : {}),\n    ...extra\n  };\n}\n\n// 表格標題列\nfunction tableHeader() {\n  return {\n    type: \"box\",\n    layout: \"horizontal\",\n    contents: [\n      {\n        ...flexText(\"時段\", \"md\", \"#6D7D88\", true),\n        flex: 2\n      },\n      {\n        ...flexText(\"平均氣溫\", \"md\", \"#6D7D88\", true),\n        align: \"center\",\n        flex: 2\n      },\n      {\n        ...flexText(\"降雨機率\", \"md\", \"#6D7D88\", true),\n        align: \"end\",\n        flex: 2\n      }\n    ]\n  };\n}\n\n// 表格資料列：早上、下午、晚上\nfunction tableRow(period, temperature, probability) {\n  return {\n    type: \"box\",\n    layout: \"horizontal\",\n    margin: \"md\",\n    contents: [\n      {\n        ...flexText(period, \"lg\", \"#4F5F6B\"),\n        flex: 2\n      },\n      {\n        ...flexText(temp(temperature), \"lg\", \"#2C3E50\", true),\n        align: \"center\",\n        flex: 2\n      },\n      {\n        ...flexText(rain(probability), \"lg\", theme.rainText, true),\n        align: \"end\",\n        flex: 2\n      }\n    ]\n  };\n}\n\n// ===== 3. 每一天建立一張日曆 Bubble =====\n\nfunction createBubble(day) {\n  const { shortDate, weekday } = formatDate(day[\"日期\"]);\n\n  const weather = String(day[\"主要天氣\"] || \"未知\");\n\n  const temperature = tempRange(\n    day[\"最低溫\"],\n    day[\"最高溫\"]\n  );\n\n  return {\n    type: \"bubble\",\n    size: \"mega\",\n    body: {\n      type: \"box\",\n      layout: \"vertical\",\n      paddingAll: \"0px\",\n      contents: [\n\n        // A. 最上方：地區名稱（淺灰白）\n        {\n          type: \"box\",\n          layout: \"vertical\",\n          backgroundColor: theme.locationBg,\n          paddingTop: \"14px\",\n          paddingBottom: \"14px\",\n          paddingStart: \"18px\",\n          paddingEnd: \"18px\",\n          contents: [\n            flexText(location, \"xl\", theme.locationText, true, {\n              wrap: false\n            })\n          ]\n        },\n\n        // B. 日期與主要天氣（左右各 50%）\n        {\n          type: \"box\",\n          layout: \"horizontal\",\n          contents: [\n\n            // 左側：日曆區\n            {\n              type: \"box\",\n              layout: \"vertical\",\n              width: \"50%\",\n              backgroundColor: theme.calendarBg,\n              paddingTop: \"18px\",\n              paddingBottom: \"18px\",\n              paddingStart: \"16px\",\n              paddingEnd: \"16px\",\n              justifyContent: \"center\",\n              alignItems: \"center\",\n              contents: [\n                flexText(shortDate, \"xxl\", \"#FFFFFF\", true, {\n                  align: \"center\"\n                }),\n                flexText(weekday, \"xl\", \"#FFFFFF\", false, {\n                  margin: \"md\",\n                  align: \"center\"\n                })\n              ]\n            },\n\n            // 右側：主要天氣及溫度\n            {\n              type: \"box\",\n              layout: \"vertical\",\n              width: \"50%\",\n              backgroundColor: theme.weatherBg,\n              paddingTop: \"18px\",\n              paddingBottom: \"18px\",\n              paddingStart: \"16px\",\n              paddingEnd: \"16px\",\n              justifyContent: \"center\",\n              contents: [\n                flexText(weather, \"md\", theme.weatherText, false, {\n                  wrap: true\n                }),\n                flexText(temperature, \"lg\", theme.temperatureText, true, {\n                  margin: \"sm\",\n                  wrap: true\n                })\n              ]\n            }\n          ]\n        },\n\n        // C. 下半部：天氣統計表格\n        {\n          type: \"box\",\n          layout: \"vertical\",\n          paddingTop: \"18px\",\n          paddingBottom: \"18px\",\n          paddingStart: \"18px\",\n          paddingEnd: \"18px\",\n          contents: [\n\n            tableHeader(),\n\n            // 標題與第一筆資料之間\n            {\n              type: \"separator\",\n              margin: \"md\"\n            },\n\n            // 早上\n            tableRow(\n              \"早上\",\n              day[\"早上氣溫\"],\n              day[\"早上降雨機率\"]\n            ),\n\n            {\n              type: \"separator\",\n              margin: \"md\"\n            },\n\n            // 下午\n            tableRow(\n              \"下午\",\n              day[\"下午氣溫\"],\n              day[\"下午降雨機率\"]\n            ),\n\n            {\n              type: \"separator\",\n              margin: \"md\"\n            },\n\n            // 晚上：下方不加分隔線\n            tableRow(\n              \"晚上\",\n              day[\"晚上氣溫\"],\n              day[\"晚上降雨機率\"]\n            ),\n\n            // E. 資料來源\n            flexText(\n              \"資料來源：OpenWeatherMap\",\n              \"xs\",\n              \"#94A3AF\",\n              false,\n              {\n                margin: \"lg\"\n              }\n            )\n          ]\n        }\n      ]\n    }\n  };\n}\n\n// ===== 4. 產生 Carousel =====\n\n// 找不到預報時，回覆一般文字\nif (forecasts.length === 0) {\n  return [{\n    json: {\n      location,\n      message: {\n        type: \"text\",\n        text: `${location}目前沒有可用的天氣預報，請稍後再試。`\n      },\n      cardCount: 0\n    }\n  }];\n}\n\n// 將每日資料轉成 Bubble\nconst bubbles = forecasts.map(createBubble);\n\n// 包裝成 LINE Flex Message\nconst message = {\n  type: \"flex\",\n  altText: `${location}未來五天天氣預報`,\n  contents: {\n    type: \"carousel\",\n    contents: bubbles\n  }\n};\n\n// ===== 5. 回傳給 LINE Messaging 節點 =====\n\nreturn [{\n  json: {\n    location,\n    message,\n    cardCount: bubbles.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        -48
+      ],
+      "id": "8e7659e7-775b-4798-bb2d-c3d5be6d54b0",
+      "name": "製作 LINE Flex 天氣圖卡",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/chat/loading/start",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chatId",
+              "value": "={{ $('Edit Fields').first().json.userId }}"
+            },
+            {
+              "name": "loadingSeconds",
+              "value": "5"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        832,
+        0
+      ],
+      "id": "c64dcec2-f338-4bb6-af6c-31ac3e42715a",
+      "name": "HTTP Request",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3f7d9177-706a-410a-95de-a5c4a493ec54",
+              "name": "message",
+              "value": "{   type: \"text\",   text: \"無法辨識你的指令。\\n\\n請使用以下指令查詢天氣：\\n查詢天氣_和美\\n查詢天氣_大甲\" }",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1184,
+        144
+      ],
+      "id": "67ac6b8f-630f-4dd3-b8c5-3e6ecfffd231",
+      "name": "產生錯誤指令回覆"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e0e609fe-08aa-4334-a89c-e7f4a73661fd",
+              "name": "message",
+              "value": "{   type: \"text\",   text: \"抱歉，目前天氣資料暫時無法正常顯示。\\n請稍後再試一次。\" }",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1808,
+        48
+      ],
+      "id": "79b93367-1df6-4f5b-9aac-80a8f2e66d34",
+      "name": "產生系統錯誤回覆"
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "binaryData": true,
+        "dataPropertyName": "calculatedSignature",
+        "encoding": "base64"
+      },
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        -16,
+        16
+      ],
+      "id": "9f68facd-ebb2-43bf-bf3e-c626c55d54ac",
+      "name": "驗證 LINE 簽章－HMAC"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2f8ddad3-07f5-4a9a-a027-c4ddd88ece38",
+              "leftValue": "={{ $json.calculatedSignature }}",
+              "rightValue": "={{ $('Webhook').first().json.headers['x-line-signature'] }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        160,
+        16
+      ],
+      "id": "f4295008-6f23-497f-8b61-9af68fede05a",
+      "name": "LINE 簽章是否有效"
+    },
+    {
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        512,
+        0
+      ],
+      "id": "7e90f4b5-4a8b-425b-a94a-06f5360616eb",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        336,
+        160
+      ],
+      "id": "617b9bcd-4f2a-4a71-8406-73ab33647d63",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n // 1. 從原始 Webhook 取得已解析的 JSON Body\nconst body = $(\"Webhook\").first().json.body;\n\n// 2. 確認 Body 是合法的物件\nif (\n  !body ||\n  typeof body !== \"object\" ||\n  Array.isArray(body)\n) {\n  throw new Error(\"LINE Webhook Body 格式錯誤\");\n}\n\n// 3. 確認 events 是陣列\nif (!Array.isArray(body.events)) {\n  throw new Error(\"LINE Webhook 缺少 events 陣列\");\n}\n\n// 4. 取得 LINE 事件\nconst events = body.events;\n\n// 5. 輸出給下一個節點\nreturn [{\n  json: {\n    body,\n    events\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        0
+      ],
+      "id": "c43faf51-9820-4bed-ab84-46c9d9068c63",
+      "name": "解析已驗證的 LINE 事件"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_SHEET_TAB_ID",
+          "mode": "id"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1184,
+        -32
+      ],
+      "id": "0268f45c-d592-4062-a331-3e80946a5b18",
+      "name": "取得天氣資料",
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n/*\n * 根據 LINE 使用者輸入的指令，\n * 從 Google Sheets 資料中取得指定地區的未來預報。\n */\n\n// 1. 取得使用者原本的 LINE 訊息\nconst message = $(\"Edit Fields\").first().json.message;\n\n// 2. 設定指令與地區的對應關係\nconst locationMap = {\n  \"查詢天氣_和美\": \"彰化縣和美鎮\",\n  \"查詢天氣_大甲\": \"臺中市大甲區\"\n};\n\n// 3. 根據 LINE 指令取得地區\nconst location = locationMap[message];\n\n// 如果找不到地區，停止執行\nif (!location) {\n  throw new Error(`無法辨識的天氣查詢指令`);\n}\n\n// 4. 取得台灣今天的日期\nconst today = $now\n  .setZone(\"Asia/Taipei\")\n  .toFormat(\"yyyy-MM-dd\");\n\n// 5. 取得 Google Sheets 回傳的所有資料\nconst rows = $input.all()\n  .map(item => item.json)\n  .filter(row => {\n\n    const id = String(row[\"唯一識別碼\"] ?? \"\");\n    const date = String(row[\"日期\"] ?? \"\");\n\n    // 只保留符合地區，而且日期不早於今天的預報\n    return (\n      id.endsWith(`_${location}`) &&\n      date >= today\n    );\n  })\n\n  // 按照預報日期由近到遠排序\n  .sort((a, b) =>\n    String(a[\"日期\"]).localeCompare(String(b[\"日期\"]))\n  )\n\n  // 最多顯示五天\n  .slice(0, 5);\n\n// 6. 將結果交給 LINE Flex 圖卡節點\nreturn [{\n  json: {\n    location,\n    forecasts: rows,\n    count: rows.length\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        -48
+      ],
+      "id": "d89b0201-117d-49e4-a9f0-76c99faa993c",
+      "name": "依地區篩選天氣預報"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "驗證 LINE 簽章－HMAC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "取得天氣資料",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "取得天氣資料",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "產生錯誤指令回覆",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "製作 LINE Flex 天氣圖卡": {
+      "main": [
+        [
+          {
+            "node": "LineMessaging",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "產生系統錯誤回覆",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "產生錯誤指令回覆": {
+      "main": [
+        [
+          {
+            "node": "LineMessaging",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "產生系統錯誤回覆": {
+      "main": [
+        [
+          {
+            "node": "LineMessaging",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "驗證 LINE 簽章－HMAC": {
+      "main": [
+        [
+          {
+            "node": "LINE 簽章是否有效",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LINE 簽章是否有效": {
+      "main": [
+        [
+          {
+            "node": "解析已驗證的 LINE 事件",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析已驗證的 LINE 事件": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "取得天氣資料": {
+      "main": [
+        [
+          {
+            "node": "依地區篩選天氣預報",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "產生系統錯誤回覆",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "依地區篩選天氣預報": {
+      "main": [
+        [
+          {
+            "node": "製作 LINE Flex 天氣圖卡",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
