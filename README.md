@@ -12,7 +12,7 @@
 **Tech Stack:** n8n、JavaScript、OpenWeather API、Google Sheets API、LINE Messaging API、Webhook、HMAC-SHA256<br>
 - [天氣資料自動更新 Workflow](./OpenWeather_to_Google_Sheets.json)
 - [LINE 天氣查詢 Workflow](./LINE_Weather_Query.json)
-- [詳細專案說明（Notion）](https://ordinary-dahlia-9b9.notion.site/LINE-n8n-Workflow-41864eab26908038935ac1b0c03b5108)
+- [詳細專案說明（Notion）](https://ordinary-dahlia-9b9.notion.site/LINE-n8n-Workflow-41564eab269080beb7dbf1b737df0b73)
 
 <img src="./assets/LINE_weather_dajia.gif" alt="LINE 天氣查詢操作展示" width="320">
 
